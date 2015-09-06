@@ -1,0 +1,121 @@
+format_version: 1.0.0
+default_step_lib_source: https://github.com/bitrise-io/bitrise-steplib.git
+
+# Configuration specified in 'app' will be used / will be available
+#  for every workflow.
+app:
+  envs:
+  - BITRISE_PROJECT_TITLE: "BitriseReactNativeSample"
+  - BITRISE_DEV_BRANCH: "master"
+  - BITRISE_PROJECT_DIR: "${BITRISE_PROJECT_TITLE}/iOS"
+  - BITRISE_PROJECT_PATH: "${BITRISE_PROJECT_TITLE}.xcodeproj"
+  - BITRISE_APP_BUNDLE_ID: "org.reactjs.native.example.${BITRISE_PROJECT_TITLE}"
+
+
+# Trigger Map defines mapping between trigger patterns
+#  and workflows.
+# You can run workflows directly with bitrise: bitrise run workflow-name
+# Or you can 'trigger' a build: bitrise trigger some-pattern
+#
+# With this example 'trigger_map' if you 'bitrise trigger test'
+#  or 'bitrise trigger test-1' or specify any other pattern
+#  which starts with 'test' then the 'test' workflow will be used.
+# In any other case (ex: 'bitrise trigger something-else') the
+#  workflow called 'fallback' will be used.
+trigger_map:
+- pattern: step1
+  is_pull_request_allowed: false
+  workflow: setup-tools
+- pattern: step2
+  is_pull_request_allowed: false
+  workflow: generate-base-project
+- pattern: step3
+  is_pull_request_allowed: false
+  workflow: up
+- pattern: test**
+  is_pull_request_allowed: true
+  workflow: test
+- pattern: "*"
+  is_pull_request_allowed: true
+  workflow: fallback
+
+# Workflows are where you can define different, separate scenarios.
+workflows:
+  setup-tools:
+    steps:
+    - script:
+        title: Setup required tools
+        inputs:
+        - content: |-
+            #!/bin/bash
+            set -v
+            # brew update
+            brew uninstall node
+            brew uninstall iojs
+            brew prune
+
+            set -e
+            brew install node
+            brew install iojs
+            brew unlink node && brew link --force iojs
+
+            npm install -g react-native-cli
+
+            brew install watchman
+            brew install flow
+  generate-base-project:
+    steps:
+    - script:
+        inputs:
+        - content: |-
+            #!/bin/bash
+            rm -rf "./${BITRISE_PROJECT_TITLE}"
+            react-native init "${BITRISE_PROJECT_TITLE}"
+  full_setup:
+    before_run:
+    - setup-tools
+    - generate-base-project
+
+  up:
+    steps:
+    - script:
+        title: Start the React app!
+        inputs:
+        - content: |-
+            #!/bin/bash
+            set -e
+            set -v
+            CURRENT_ABS_PATH="$(pwd)"
+            cd "${BITRISE_PROJECT_DIR}"
+            app_bundle_id="${BITRISE_APP_BUNDLE_ID}"
+
+            # start/boot simulator
+            open -a "iOS Simulator"
+
+            # build the base Xcode project
+            xcodebuild -project ${BITRISE_PROJECT_PATH} \
+              -scheme "${BITRISE_PROJECT_TITLE}" \
+              -destination 'platform=iphonesimulator,name=iPhone 6 Plus' \
+              -derivedDataPath "${CURRENT_ABS_PATH}/build" \
+              build
+
+            # install the app
+            app_full_pth="${CURRENT_ABS_PATH}/build/Build/Products/Debug-iphonesimulator/${BITRISE_PROJECT_TITLE}.app"
+            echo "app_full_pth: ${app_full_pth}"
+            xcrun simctl install booted "${app_full_pth}"
+
+            # run the app
+            xcrun simctl launch booted ${app_bundle_id}
+
+            # bring the iOS Simulator to front
+            open -a "iOS Simulator"
+  fallback:
+    steps:
+    - script:
+        title: Fallback
+        inputs:
+        - content: |-
+            #!/bin/bash
+            echo "This is a the fallback workflow, used"
+            echo " if you 'bitrise trigger' a build but the pattern"
+            echo " does not match any other pattern in the trigger_map"
